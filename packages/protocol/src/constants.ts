@@ -67,6 +67,30 @@ export function isTunnelId(value: string): boolean {
 	return true;
 }
 
+/** Reserved labels that a user must not bind as a fixed subdomain. */
+export const RESERVED_SUBDOMAINS = ["api", "admin", "www", "hostc", "tunnel", "account", "accounts", "health"];
+
+/**
+ * Whether a value is a valid fixed subdomain label (a DNS label usable as a host).
+ * Rejects reserved names and anything that looks like a random tunnel id, so a
+ * fixed subdomain can never collide with the anonymous id namespace.
+ */
+export function isSubdomainLabel(value: string): boolean {
+	if (value.length < 3 || value.length > 63) {
+		return false;
+	}
+	if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(value)) {
+		return false;
+	}
+	if (RESERVED_SUBDOMAINS.includes(value)) {
+		return false;
+	}
+	if (isTunnelId(value)) {
+		return false;
+	}
+	return true;
+}
+
 /** Response body of `POST /api/tunnels`. */
 export type CreateTunnelResponse = {
 	id: string;
@@ -86,4 +110,20 @@ export function isCreateTunnelResponse(value: unknown): value is CreateTunnelRes
 		typeof record.connectUrl === "string" &&
 		typeof record.token === "string"
 	);
+}
+
+/** Response body of `POST /api/accounts`. */
+export type RegisterAccountResponse = {
+	/** The user's API token. Shown once; the server stores only a hash. */
+	token: string;
+	/** The fixed subdomain bound to this account. */
+	subdomain: string;
+};
+
+export function isRegisterAccountResponse(value: unknown): value is RegisterAccountResponse {
+	if (typeof value !== "object" || value === null) {
+		return false;
+	}
+	const record = value as Record<string, unknown>;
+	return typeof record.token === "string" && typeof record.subdomain === "string";
 }

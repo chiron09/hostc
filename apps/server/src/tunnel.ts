@@ -40,6 +40,9 @@ import { errorResponse, type PageOptions, pages } from "./pages.ts";
 /** The Worker forwards authenticated connect requests to this URL. Public requests never have this host. */
 export const CONNECT_URL = "http://hostc.internal/connect";
 
+/** The Worker forwards admin kick requests to this URL. Public requests never have this host. */
+export const KICK_URL = "http://hostc.internal/kick";
+
 const TUNNEL_KEY = "tunnel";
 /** Stream ids at or above this value have not been handed out yet. Reserved in blocks to avoid a write per request. */
 const STREAM_CEILING_KEY = "streamCeiling";
@@ -102,6 +105,10 @@ export class Tunnel extends DurableObject<Env> {
 	}
 
 	override async fetch(request: Request): Promise<Response> {
+		if (request.url === KICK_URL) {
+			await this.expire();
+			return Response.json({ ok: true });
+		}
 		const isConnect = request.url === CONNECT_URL;
 		if (!(await this.isAlive())) {
 			return isConnect
@@ -220,11 +227,17 @@ export class Tunnel extends DurableObject<Env> {
 
 	private async clientGone(code: number): Promise<void> {
 		this.failAll();
+		await reportLifecycle(this.env, "disconnected", this.tunnelName());
 		if (code === CLOSE_SHUTDOWN) {
 			await this.expire();
 			return;
 		}
 		await this.ctx.storage.setAlarm(Date.now() + RECONNECT_GRACE_MS);
+	}
+
+	/** The name the Worker used for `getByName`, which is the tunnel id. */
+	private tunnelName(): string {
+		return this.ctx.id.name ?? "";
 	}
 
 	private async expire(): Promise<void> {
@@ -233,6 +246,7 @@ export class Tunnel extends DurableObject<Env> {
 		}
 		this.failAll();
 		this.alive = false;
+		await reportLifecycle(this.env, "gone", this.tunnelName());
 		// Also deletes the alarm (compatibility date >= 2026-02-24).
 		await this.ctx.storage.deleteAll();
 	}
@@ -714,6 +728,26 @@ function safeClose(ws: WebSocket, code: number, reason: string): void {
 	} catch {
 		// Already closing or closed.
 	}
+}
+
+/**
+ * Best-effort lifecycle report to the admin registry. Failures are swallowed:
+ * the tunnel must keep working when the registry is down, and the entry's
+ * MAX_AGE_MS pruning bounds how stale a missed report can leave the list.
+ */
+function reportLifecycle(env: Env, event: "disconnected" | "gone", id: string): Promise<void> {
+	if (!id || !env.REGISTRY) {
+		return Promise.resolve();
+	}
+	const registry = env.REGISTRY.get(env.REGISTRY.idFromName("global"));
+	return registry
+		.fetch(`https://registry/${event}`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ id }),
+		})
+		.then(() => undefined)
+		.catch(() => undefined);
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {

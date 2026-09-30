@@ -11,6 +11,10 @@ export type TunnelOptions = {
 	server: string;
 	/** Local server origin, for example `http://localhost:3000`. */
 	target: string | URL;
+	/** Optional account API token, to bind a fixed subdomain. */
+	token?: string;
+	/** Optional subdomain to use with `token`. */
+	subdomain?: string;
 };
 
 export type TunnelEvents = {
@@ -31,6 +35,7 @@ export type TunnelEvents = {
 export class Tunnel extends EventEmitter<TunnelEvents> {
 	private readonly server: string;
 	private readonly target: URL;
+	private readonly auth: { token?: string; subdomain?: string };
 	private info: CreateTunnelResponse;
 	private connection: Connection | null = null;
 	private closing = false;
@@ -40,7 +45,7 @@ export class Tunnel extends EventEmitter<TunnelEvents> {
 	private urlChanged = false;
 
 	static async open(options: TunnelOptions): Promise<Tunnel> {
-		const info = await createTunnel(options.server);
+		const info = await createTunnel(options.server, { token: options.token, subdomain: options.subdomain });
 		const tunnel = new Tunnel(options, info);
 		tunnel.connection = await tunnel.connect();
 		tunnel.backoff.connected();
@@ -52,6 +57,7 @@ export class Tunnel extends EventEmitter<TunnelEvents> {
 		super();
 		this.server = options.server;
 		this.target = new URL(options.target);
+		this.auth = { token: options.token, subdomain: options.subdomain };
 		this.info = info;
 	}
 
@@ -125,7 +131,7 @@ export class Tunnel extends EventEmitter<TunnelEvents> {
 						throw caught;
 					}
 					// The tunnel expired while we were away: start a new one.
-					this.info = await createTunnel(this.server);
+					this.info = await createTunnel(this.server, this.auth);
 					this.urlChanged = true;
 					this.connection = await this.connect();
 				}

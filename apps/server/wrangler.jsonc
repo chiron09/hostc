@@ -10,9 +10,17 @@
 		"TUNNEL_DOMAIN": "localhost:8787",
 	},
 	"durable_objects": {
-		"bindings": [{ "name": "TUNNEL", "class_name": "Tunnel" }],
+		"bindings": [
+			{ "name": "TUNNEL", "class_name": "Tunnel" },
+			{ "name": "REGISTRY", "class_name": "Registry" },
+			{ "name": "ACCOUNTS", "class_name": "Accounts" }
+		],
 	},
-	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Tunnel"] }],
+	"migrations": [
+		{ "tag": "v1", "new_sqlite_classes": ["Tunnel"] },
+		{ "tag": "v2", "new_sqlite_classes": ["Registry"] },
+		{ "tag": "v3", "new_sqlite_classes": ["Accounts"] }
+	],
 	"ratelimits": [
 		{
 			"name": "CREATE_LIMIT",

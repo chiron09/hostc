@@ -1,12 +1,14 @@
 import { parseArgs } from "node:util";
 
 export type Command =
-	| { kind: "run"; target: URL; server: string; qr: boolean }
+	| { kind: "run"; target: URL; server: string; qr: boolean; token?: string; subdomain?: string }
+	| { kind: "register"; subdomain: string; server: string }
 	| { kind: "help" }
 	| { kind: "version" }
 	| { kind: "error"; message: string };
 
 export const USAGE = `Usage: hostc <target> [options]
+       hostc register <subdomain> [--server <url>]
 
 Expose a local HTTP/WebSocket server through a public URL.
 
@@ -16,10 +18,12 @@ Target:
   https://localhost:5173   any http(s) origin
 
 Options:
-  --server <url>   tunnel server (env HOSTC_SERVER)
-  --qr             print a QR code of the public URL
-  -h, --help       show this help
-  -v, --version    show the version`;
+  --server <url>     tunnel server (env HOSTC_SERVER)
+  --subdomain <name> use a fixed subdomain (requires --token or env HOSTC_TOKEN)
+  --token <token>    account API token (env HOSTC_TOKEN)
+  --qr               print a QR code of the public URL
+  -h, --help         show this help
+  -v, --version      show the version`;
 
 export function parseCommand(argv: string[], env: Record<string, string | undefined>, defaultServer: string): Command {
 	let parsed: ReturnType<typeof parse>;
@@ -35,6 +39,23 @@ export function parseCommand(argv: string[], env: Record<string, string | undefi
 	if (values.version) {
 		return { kind: "version" };
 	}
+
+	// `hostc register <subdomain>`
+	if (positionals[0] === "register") {
+		const subdomain = positionals[1];
+		if (!subdomain) {
+			return { kind: "error", message: "Usage: hostc register <subdomain>" };
+		}
+		if (positionals.length > 2) {
+			return { kind: "error", message: `Unexpected argument: ${positionals[2]}` };
+		}
+		const server = values.server ?? env.HOSTC_SERVER ?? defaultServer;
+		if (!isHttpServer(server)) {
+			return { kind: "error", message: `Invalid server URL "${server}".` };
+		}
+		return { kind: "register", subdomain, server };
+	}
+
 	const [input, ...rest] = positionals;
 	if (!input) {
 		return { kind: "help" };
@@ -47,10 +68,19 @@ export function parseCommand(argv: string[], env: Record<string, string | undefi
 		return { kind: "error", message: `Invalid target "${input}". Use a port like 3000, host:port, or an http(s) URL.` };
 	}
 	const server = values.server ?? env.HOSTC_SERVER ?? defaultServer;
-	if (!URL.canParse(server) || !/^https?:$/.test(new URL(server).protocol)) {
+	if (!isHttpServer(server)) {
 		return { kind: "error", message: `Invalid server URL "${server}".` };
 	}
-	return { kind: "run", target, server, qr: values.qr ?? false };
+	const token = values.token ?? env.HOSTC_TOKEN;
+	const subdomain = values.subdomain;
+	if (subdomain && !token) {
+		return { kind: "error", message: "--subdomain requires --token (or env HOSTC_TOKEN)." };
+	}
+	return { kind: "run", target, server, qr: values.qr ?? false, token, subdomain };
+}
+
+function isHttpServer(value: string): boolean {
+	return URL.canParse(value) && /^https?:$/.test(new URL(value).protocol);
 }
 
 function parse(argv: string[]) {
@@ -59,6 +89,8 @@ function parse(argv: string[]) {
 		allowPositionals: true,
 		options: {
 			server: { type: "string" },
+			subdomain: { type: "string" },
+			token: { type: "string" },
 			qr: { type: "boolean" },
 			help: { type: "boolean", short: "h" },
 			version: { type: "boolean", short: "v" },

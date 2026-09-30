@@ -1,1 +1,2 @@
 TOKEN_SECRET=local-development-secret-at-least-32-bytes
+ADMIN_TOKEN=local-development-admin-token

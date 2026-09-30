@@ -2,7 +2,7 @@
 import net from "node:net";
 import { styleText } from "node:util";
 
-import { type RequestLog, Tunnel, TunnelError } from "@hostc/client";
+import { type RequestLog, registerAccount, Tunnel, TunnelError } from "@hostc/client";
 import { renderUnicodeCompact } from "uqr";
 
 import { parseCommand, USAGE } from "./args.ts";
@@ -22,16 +22,18 @@ async function main(): Promise<number> {
 		case "error":
 			console.error(`${styleText("red", "error")} ${command.message}\n\n${USAGE}`);
 			return 2;
+		case "register":
+			return register(command);
 	}
 
-	const { target, server, qr } = command;
+	const { target, server, qr, token, subdomain } = command;
 	if (!(await isListening(target))) {
 		console.log(styleText("yellow", `Nothing is listening on ${target.host} yet; requests will fail until it starts.`));
 	}
 
 	let tunnel: Tunnel;
 	try {
-		tunnel = await Tunnel.open({ server, target });
+		tunnel = await Tunnel.open({ server, target, token, subdomain });
 	} catch (error) {
 		console.error(`${styleText("red", "error")} ${describe(error)}`);
 		return 1;
@@ -73,6 +75,22 @@ async function main(): Promise<number> {
 		process.on("SIGINT", stop);
 		process.on("SIGTERM", stop);
 	});
+}
+
+async function register(command: { subdomain: string; server: string }): Promise<number> {
+	try {
+		const account = await registerAccount(command.server, command.subdomain);
+		const domain = new URL(command.server).host;
+		console.log(`\n  ${styleText("bold", `https://${account.subdomain}.${domain}`)}  ${styleText("dim", "→ your fixed subdomain")}\n`);
+		console.log(`  ${styleText("bold", "API token")} (save it now — it is shown only once):`);
+		console.log(`  ${account.token}\n`);
+		console.log(styleText("dim", "  Use it with: hostc <target> --token <token>  (or set HOSTC_TOKEN)"));
+		console.log(styleText("dim", `  Fixed URL: hostc <target> --token <token> --subdomain ${account.subdomain}\n`));
+		return 0;
+	} catch (error) {
+		console.error(`${styleText("red", "error")} ${describe(error)}`);
+		return 1;
+	}
 }
 
 function printUrl(url: string, target: URL, qr: boolean): void {

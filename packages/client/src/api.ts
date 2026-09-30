@@ -2,8 +2,10 @@ import {
 	API_TUNNELS_PATH,
 	type CreateTunnelResponse,
 	isCreateTunnelResponse,
+	isRegisterAccountResponse,
 	PROTOCOL_HEADER,
 	PROTOCOL_VERSION,
+	type RegisterAccountResponse,
 } from "@hostc/protocol";
 
 export type TunnelErrorCode =
@@ -27,21 +29,57 @@ export class TunnelError extends Error {
 
 export const PROTOCOL_HEADERS = { [PROTOCOL_HEADER]: String(PROTOCOL_VERSION) };
 
-export async function createTunnel(server: string): Promise<CreateTunnelResponse> {
+export async function createTunnel(
+	server: string,
+	options: { token?: string; subdomain?: string } = {},
+): Promise<CreateTunnelResponse> {
+	const headers: Record<string, string> = { ...PROTOCOL_HEADERS };
+	let body: string | undefined;
+	if (options.token) {
+		headers.authorization = `Bearer ${options.token}`;
+		headers["content-type"] = "application/json";
+		body = JSON.stringify(options.subdomain ? { subdomain: options.subdomain } : {});
+	}
 	let response: Response;
 	try {
-		response = await fetch(new URL(API_TUNNELS_PATH, server), { method: "POST", headers: PROTOCOL_HEADERS });
+		response = await fetch(new URL(API_TUNNELS_PATH, server), {
+			method: "POST",
+			headers,
+			body,
+		});
 	} catch (error) {
 		throw new TunnelError("network_error", `Could not reach ${server}`, { cause: error });
 	}
 	if (response.status !== 201) {
 		throw errorFromResponse(response.status, await response.text());
 	}
-	const body: unknown = await response.json();
-	if (!isCreateTunnelResponse(body)) {
+	const result: unknown = await response.json();
+	if (!isCreateTunnelResponse(result)) {
 		throw new TunnelError("server_error", "The server returned an invalid tunnel");
 	}
-	return body;
+	return result;
+}
+
+/** Registers an account and reserves a fixed subdomain. */
+export async function registerAccount(server: string, subdomain: string): Promise<RegisterAccountResponse> {
+	let response: Response;
+	try {
+		response = await fetch(new URL("/api/accounts", server), {
+			method: "POST",
+			headers: { ...PROTOCOL_HEADERS, "content-type": "application/json" },
+			body: JSON.stringify({ subdomain }),
+		});
+	} catch (error) {
+		throw new TunnelError("network_error", `Could not reach ${server}`, { cause: error });
+	}
+	if (response.status !== 201) {
+		throw errorFromResponse(response.status, await response.text());
+	}
+	const result: unknown = await response.json();
+	if (!isRegisterAccountResponse(result)) {
+		throw new TunnelError("server_error", "The server returned an invalid account");
+	}
+	return result;
 }
 
 export function errorFromResponse(status: number, text: string): TunnelError {

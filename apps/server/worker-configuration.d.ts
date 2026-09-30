@@ -5,12 +5,15 @@ interface __BaseEnv_Env {
 	CREATE_LIMIT: RateLimit;
 	TUNNEL_DOMAIN: string;
 	TOKEN_SECRET: string;
+	ADMIN_TOKEN?: string;
 	TUNNEL: DurableObjectNamespace<import("./src/index").Tunnel>;
+	REGISTRY: DurableObjectNamespace<import("./src/index").Registry>;
+	ACCOUNTS: DurableObjectNamespace<import("./src/index").Accounts>;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {
 		mainModule: typeof import("./src/index");
-		durableNamespaces: "Tunnel";
+		durableNamespaces: "Tunnel" | "Registry" | "Accounts";
 	}
 	interface Env extends __BaseEnv_Env {}
 }
