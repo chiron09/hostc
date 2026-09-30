@@ -42,6 +42,20 @@ export class Accounts extends DurableObject<Env> {
 				const accountId = await this.accountIdBySubdomain(subdomain);
 				return Response.json({ accountId });
 			}
+			if (request.method === "GET" && url.pathname === "/list") {
+				return Response.json({ accounts: await this.listAccounts() });
+			}
+			if (request.method === "POST" && url.pathname === "/delete") {
+				const body = (await request.json()) as { subdomain?: unknown; free?: unknown };
+				const subdomain = typeof body.subdomain === "string" ? body.subdomain.toLowerCase() : "";
+				const free = body.free === true;
+				return Response.json(await this.deleteAccount(subdomain, free));
+			}
+			if (request.method === "POST" && url.pathname === "/release") {
+				const body = (await request.json()) as { subdomain?: unknown };
+				const subdomain = typeof body.subdomain === "string" ? body.subdomain.toLowerCase() : "";
+				return Response.json(await this.releaseSubdomain(subdomain));
+			}
 			return Response.json({ error: "Not found" }, { status: 404 });
 		} catch (error) {
 			return Response.json({ error: String(error) }, { status: 500 });
@@ -113,6 +127,76 @@ export class Accounts extends DurableObject<Env> {
 		const tombstone = await this.ctx.storage.get<string>(TOMBSTONE_PREFIX + subdomain);
 		// A tombstone means "used before"; treat as taken so it can never be re-issued.
 		return tombstone ? "taken" : null;
+	}
+
+	/** Lists bound accounts. Token hashes are never returned. */
+	async listAccounts(): Promise<{ accountId: string; subdomain: string | null; createdAt: number }[]> {
+		const entries = await this.ctx.storage.list<AccountRecord>({ prefix: ACCOUNT_PREFIX, limit: 1000 });
+		return [...entries]
+			.map(([key, record]) => ({
+				accountId: key.slice(ACCOUNT_PREFIX.length),
+				subdomain: record.subdomain,
+				createdAt: record.createdAt,
+			}))
+			.sort((a, b) => a.createdAt - b.createdAt);
+	}
+
+	/**
+	 * Deletes the account bound to `subdomain`. `free` controls whether the
+	 * subdomain also returns to the pool: by default a tombstone keeps it
+	 * reserved forever, matching registration's first-come semantics.
+	 */
+	async deleteAccount(
+		subdomain: string,
+		free: boolean,
+	): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+		if (!subdomain) {
+			return { ok: false, code: "invalid", message: "subdomain required" };
+		}
+		const store = this.ctx.storage;
+		const accountId = await store.get<string>(SUBDOMAIN_PREFIX + subdomain);
+		const removed = await store.transaction(async (txn) => {
+			const id = await txn.get<string>(SUBDOMAIN_PREFIX + subdomain);
+			if (!id) {
+				return false;
+			}
+			await txn.delete(SUBDOMAIN_PREFIX + subdomain);
+			if (free) {
+				await txn.delete(TOMBSTONE_PREFIX + subdomain);
+			} else {
+				await txn.put(TOMBSTONE_PREFIX + subdomain, id);
+			}
+			return true;
+		});
+		if (!removed) {
+			return { ok: false, code: "not_found", message: `No account bound to "${subdomain}".` };
+		}
+		// The account record itself always goes, whether or not the name is freed.
+		if (accountId) {
+			await store.delete(ACCOUNT_PREFIX + accountId);
+		}
+		return { ok: true };
+	}
+
+	/**
+	 * Returns a subdomain name to the pool by dropping its tombstone. Safe to
+	 * call when the account is already gone; that is the usual case, since
+	 * deletion leaves the tombstone behind by design.
+	 */
+	async releaseSubdomain(subdomain: string): Promise<{ ok: true; released: boolean }> {
+		if (!subdomain) {
+			return { ok: true, released: false };
+		}
+		const store = this.ctx.storage;
+		// A name that is currently bound stays bound: release only clears history.
+		if (await store.get<string>(SUBDOMAIN_PREFIX + subdomain)) {
+			return { ok: true, released: false };
+		}
+		const had = (await store.get<string>(TOMBSTONE_PREFIX + subdomain)) !== undefined;
+		if (had) {
+			await store.delete(TOMBSTONE_PREFIX + subdomain);
+		}
+		return { ok: true, released: had };
 	}
 }
 

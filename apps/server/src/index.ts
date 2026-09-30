@@ -35,7 +35,7 @@ export default {
 				headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
 			});
 		}
-		if (url.pathname === "/api/admin/tunnels" || url.pathname.startsWith("/api/admin/tunnels/")) {
+		if (url.pathname === "/api/admin" || url.pathname.startsWith("/api/admin/")) {
 			return handleAdmin(request, env, url);
 		}
 		if (url.pathname.startsWith(API_TUNNELS_PATH)) {
@@ -104,6 +104,18 @@ async function handleAdmin(request: Request, env: Env, url: URL): Promise<Respon
 	if (kick?.[1] && request.method === "POST") {
 		return kickTunnel(env, kick[1]);
 	}
+	if (request.method === "GET" && url.pathname === "/api/admin/accounts") {
+		return listAccounts(env);
+	}
+	const del = url.pathname.match(/^\/api\/admin\/accounts\/([^/]+)$/);
+	if (del?.[1] && request.method === "DELETE") {
+		const free = url.searchParams.get("free") === "1";
+		return deleteAccount(env, decodeURIComponent(del[1]), free);
+	}
+	const release = url.pathname.match(/^\/api\/admin\/accounts\/([^/]+)\/release$/);
+	if (release?.[1] && request.method === "POST") {
+		return releaseSubdomain(env, decodeURIComponent(release[1]));
+	}
 	return jsonError(404, "Not found");
 }
 
@@ -148,6 +160,62 @@ async function kickTunnel(env: Env, id: string): Promise<Response> {
 	// Tells the tunnel to drop its client and expire; best effort after the registry update.
 	await env.TUNNEL.getByName(id).fetch(new Request(KICK_URL, { method: "POST" })).catch(() => undefined);
 	return Response.json({ ok: true });
+}
+
+async function listAccounts(env: Env): Promise<Response> {
+	const accounts = env.ACCOUNTS.get(env.ACCOUNTS.idFromName("global"));
+	const response = await accounts.fetch("https://accounts/list");
+	if (!response.ok) {
+		return jsonError(502, "Account store unavailable");
+	}
+	const body = (await response.json()) as { accounts: { accountId: string; subdomain: string | null; createdAt: number }[] };
+	const domain = env.TUNNEL_DOMAIN.split(":")[0];
+	return Response.json({
+		accounts: body.accounts.map((entry) => ({
+			...entry,
+			url: entry.subdomain ? `https://${entry.subdomain}.${domain}` : null,
+		})),
+	});
+}
+
+async function deleteAccount(env: Env, subdomain: string, free: boolean): Promise<Response> {
+	if (!isSubdomainLabel(subdomain)) {
+		return jsonError(400, "Invalid subdomain");
+	}
+	const accounts = env.ACCOUNTS.get(env.ACCOUNTS.idFromName("global"));
+	const response = await accounts.fetch("https://accounts/delete", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ subdomain, free }),
+	});
+	if (!response.ok) {
+		return jsonError(502, "Account store unavailable");
+	}
+	const result = (await response.json()) as { ok: boolean; code?: string; message?: string };
+	if (!result.ok) {
+		return jsonError(result.code === "not_found" ? 404 : 400, result.message ?? "Delete failed");
+	}
+	// Drop any live tunnel on that subdomain so the name stops serving at once.
+	await env.TUNNEL.getByName(subdomain).fetch(new Request(KICK_URL, { method: "POST" })).catch(() => undefined);
+	return Response.json({ ok: true });
+}
+
+/** Returns a deleted subdomain name to the pool so it can be registered again. */
+async function releaseSubdomain(env: Env, subdomain: string): Promise<Response> {
+	if (!isSubdomainLabel(subdomain)) {
+		return jsonError(400, "Invalid subdomain");
+	}
+	const accounts = env.ACCOUNTS.get(env.ACCOUNTS.idFromName("global"));
+	const response = await accounts.fetch("https://accounts/release", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ subdomain }),
+	});
+	if (!response.ok) {
+		return jsonError(502, "Account store unavailable");
+	}
+	const result = (await response.json()) as { ok: boolean; released: boolean };
+	return Response.json(result);
 }
 
 // ---------------------------------------------------------------------------

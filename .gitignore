@@ -19,3 +19,6 @@ artifacts
 .token_secret.txt
 *.admin_token.txt
 *.token_secret.txt
+
+# Local account credentials (never commit)
+.hostc_accounts.txt

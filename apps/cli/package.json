@@ -33,6 +33,7 @@
 	"type": "module",
 	"scripts": {
 		"build": "tsdown",
+		"build:standalone": "tsdown --config tsdown.standalone.config.ts",
 		"prepack": "pnpm build",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run --exclude test/e2e.test.ts",
