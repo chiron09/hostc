@@ -11,6 +11,12 @@
   <p><a href="https://hostc.dev">hostc.dev</a> · <a href="./README.zh-CN.md">简体中文</a></p>
 </div>
 
+> [!NOTE]
+> **This is a self-hosted fork.** It adds **fixed subdomains**, accounts and an admin panel on top
+> of upstream hostc. If you just want to *use* it on another device, see
+> **[docs/install.md](./docs/install.md)**. If you want to run your own server, see
+> [Server deployment](./docs/install.md#三服务端部署自建).
+
 ## Quick start
 
 Start your app, then point hostc at its port:

@@ -138,7 +138,7 @@ export class Accounts extends DurableObject<Env> {
 				subdomain: record.subdomain,
 				createdAt: record.createdAt,
 			}))
-			.sort((a, b) => a.createdAt - b.createdAt);
+			.toSorted((a, b) => a.createdAt - b.createdAt);
 	}
 
 	/**

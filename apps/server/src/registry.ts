@@ -91,6 +91,6 @@ export class Registry extends DurableObject<Env> {
 		if (stale.length > 0) {
 			await store.delete(stale);
 		}
-		return alive.sort((a, b) => b.createdAt - a.createdAt);
+		return alive.toSorted((a, b) => b.createdAt - a.createdAt);
 	}
 }
