@@ -14,11 +14,15 @@ coverage
 artifacts
 .dev.vars
 
-# Local secrets (never commit)
+# Local secrets and credentials — never commit.
+# The server stores ADMIN_TOKEN and TOKEN_SECRET as Worker secrets; the only
+# copies on disk must stay out of Git. Install docs use placeholders.
 .admin_token.txt
 .token_secret.txt
 *.admin_token.txt
 *.token_secret.txt
-
-# Local account credentials (never commit)
 .hostc_accounts.txt
+*hostc_accounts*
+secrets.txt
+secrets.json
+credentials.json
